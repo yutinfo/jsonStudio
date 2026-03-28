@@ -1,0 +1,19 @@
+{
+  "name": "json-viewer-editor",
+  "version": "1.0.0",
+  "description": "Modern JSON viewer and editor with raw, tree, and table views.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "json",
+    "viewer",
+    "editor",
+    "nodejs",
+    "tailwindcss"
+  ],
+  "author": "",
+  "license": "MIT"
+}
