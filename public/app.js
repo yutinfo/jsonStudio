@@ -78,7 +78,8 @@ const state = {
   lineCount: 0,
   hiddenColumns: new Map(),
   tablePage: 0,
-  tablePageSize: 50
+  tablePageSize: 50,
+  prettyCollapsed: new Set()
 };
 
 function colStateKey() { return JSON.stringify(state.tablePath); }
@@ -187,6 +188,7 @@ function cacheElements() {
   els.deleteKeyCount = document.getElementById("deleteKeyCount");
   els.deleteKeyEmpty = document.getElementById("deleteKeyEmpty");
   els.wrapToggle = document.getElementById("wrapToggle");
+  els.prettyView = document.getElementById("prettyView");
   els.treeView = document.getElementById("treeView");
   els.tableView = document.getElementById("tableView");
   els.tableToolbar = document.getElementById("tableToolbar");
@@ -910,18 +912,23 @@ function renderStats() {
 }
 
 function renderModeTabs() {
-  els.modeSummary.textContent = state.currentMode === "tree" ? "Tree View" : "Table View";
+  const modeLabel = { tree: "Tree View", table: "Table View", pretty: "Pretty View" };
+  els.modeSummary.textContent = modeLabel[state.currentMode] ?? "Structured View";
   document.querySelectorAll("[data-mode]").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.mode === state.currentMode);
   });
 }
 
 function renderStructuredView() {
+  els.prettyView.classList.toggle("hidden", state.currentMode !== "pretty");
   els.treeView.classList.toggle("hidden", state.currentMode !== "tree");
   els.tableView.classList.toggle("hidden", state.currentMode !== "table");
   els.tableToolbar.classList.toggle("hidden", state.currentMode !== "table");
 
-  if (state.currentMode === "tree") {
+  if (state.currentMode === "pretty") {
+    renderPrettyView();
+    setStructuredStatus("");
+  } else if (state.currentMode === "tree") {
     renderTreeView();
     setStructuredStatus("");
   } else {
@@ -938,6 +945,112 @@ function setMode(mode) {
   renderAll();
 }
 
+/* ─── Pretty View ──────────────────────────────────────────── */
+function renderPrettyView() {
+  els.prettyView.innerHTML = "";
+
+  let matchPaths = null;
+  let ancestorPaths = null;
+  if (state.searchQuery) {
+    const results = collectSearchResults();
+    if (els.searchCount) {
+      els.searchCount.textContent = `${results.length}${results.length >= 500 ? "+" : ""} matches`;
+    }
+    matchPaths = new Set(results.map((r) => pathToKey(r.path)));
+    ancestorPaths = new Set();
+    results.forEach(({ path }) => {
+      for (let i = 0; i < path.length; i++) {
+        ancestorPaths.add(pathToKey(path.slice(0, i)));
+      }
+    });
+  } else {
+    clearSearchCount();
+  }
+
+  const wrap = document.createElement("div");
+  wrap.className = "pv-wrap";
+  renderPrettyNode(state.data, null, [], 0, true, wrap, matchPaths, ancestorPaths);
+  els.prettyView.appendChild(wrap);
+}
+
+function renderPrettyNode(value, keyName, path, indent, isLast, container, matchPaths, ancestorPaths) {
+  const type = getValueType(value);
+  const pathKey = pathToKey(path);
+  const isComplex = type === "object" || type === "array";
+  const isMatch = matchPaths ? matchPaths.has(pathKey) : false;
+  const hasMatchDescendant = ancestorPaths ? ancestorPaths.has(pathKey) : false;
+
+  if (!isComplex) {
+    const row = document.createElement("div");
+    row.className = isMatch ? "pv-row is-match" : "pv-row";
+    let html = `<span class="pv-line" style="padding-left:${0.75 + indent * 1.5}rem">`;
+    if (keyName !== null) html += prettyKeyHtml(keyName) + `<span class="pv-punct">: </span>`;
+    html += prettyValueHtml(value, type);
+    if (!isLast) html += `<span class="pv-punct">,</span>`;
+    html += `</span>`;
+    row.innerHTML = html;
+    container.appendChild(row);
+    return;
+  }
+
+  const entries = type === "object" ? Object.entries(value) : value.map((v, i) => [i, v]);
+  const count = entries.length;
+  const open  = type === "object" ? "{" : "[";
+  const close = type === "object" ? "}" : "]";
+  // Force-expand if a descendant matches the search
+  const isCollapsed = hasMatchDescendant ? false : state.prettyCollapsed.has(pathKey);
+  const pad = `padding-left:${0.75 + indent * 1.5}rem`;
+  const pathAttr = `data-path="${escapeHtml(pathKey)}"`;
+  const toggleBtn = `<button class="pv-toggle" data-role="pv-toggle" ${pathAttr} title="${isCollapsed ? "Expand" : "Collapse"}">${isCollapsed ? "▶" : "▼"}</button>`;
+
+  const openRow = document.createElement("div");
+  openRow.className = isMatch ? "pv-row is-match" : "pv-row";
+
+  let keyHtml = keyName !== null ? prettyKeyHtml(keyName) + `<span class="pv-punct">: </span>` : "";
+
+  if (count === 0) {
+    openRow.innerHTML = `<span class="pv-line" style="${pad}">${keyHtml}<span class="pv-brace">${open}${close}</span>${!isLast ? `<span class="pv-punct">,</span>` : ""}</span>`;
+    container.appendChild(openRow);
+    return;
+  }
+
+  if (isCollapsed) {
+    const noun = type === "object" ? (count === 1 ? "key" : "keys") : (count === 1 ? "item" : "items");
+    openRow.innerHTML = `<span class="pv-line" style="${pad}">${keyHtml}${toggleBtn}<span class="pv-brace">${open}</span><span class="pv-summary">${count} ${noun}</span><span class="pv-brace">${close}</span>${!isLast ? `<span class="pv-punct">,</span>` : ""}</span>`;
+    container.appendChild(openRow);
+    return;
+  }
+
+  openRow.innerHTML = `<span class="pv-line" style="${pad}">${keyHtml}${toggleBtn}<span class="pv-brace">${open}</span></span>`;
+  container.appendChild(openRow);
+
+  entries.forEach(([k, v], idx) => {
+    renderPrettyNode(v, k, [...path, k], indent + 1, idx === entries.length - 1, container, matchPaths, ancestorPaths);
+  });
+
+  const closeRow = document.createElement("div");
+  closeRow.className = "pv-row";
+  closeRow.innerHTML = `<span class="pv-line" style="${pad}"><span class="pv-brace">${close}</span>${!isLast ? `<span class="pv-punct">,</span>` : ""}</span>`;
+  container.appendChild(closeRow);
+}
+
+function prettyKeyHtml(key) {
+  const q = state.searchQuery;
+  if (typeof key === "number") return `<span class="pv-idx">${key}</span>`;
+  const inner = q ? highlightText(String(key), q) : escapeHtml(String(key));
+  return `<span class="pv-key">"${inner}"</span>`;
+}
+
+function prettyValueHtml(value, type) {
+  const q = state.searchQuery;
+  if (type === "string")  return `<span class="pv-str">"${q ? highlightText(value, q) : escapeHtml(value)}"</span>`;
+  if (type === "number")  { const t = String(value); return `<span class="pv-num">${q ? highlightText(t, q) : escapeHtml(t)}</span>`; }
+  if (type === "boolean") { const t = String(value); return `<span class="pv-bool">${q ? highlightText(t, q) : t}</span>`; }
+  if (type === "null")    return `<span class="pv-null">${q ? highlightText("null", q) : "null"}</span>`;
+  return escapeHtml(String(value));
+}
+/* ──────────────────────────────────────────────────────────── */
+
 function renderTreeView() {
   els.treeView.innerHTML = "";
   if (state.searchQuery) {
@@ -946,7 +1059,7 @@ function renderTreeView() {
   }
   clearSearchCount();
   const wrapper = document.createElement("div");
-  wrapper.className = "space-y-3";
+  wrapper.className = "space-y-1";
   wrapper.appendChild(renderNodeRow({ keyLabel: "root", value: state.data, path: [], parentType: "root" }));
   els.treeView.appendChild(wrapper);
 }
@@ -1035,10 +1148,10 @@ function renderNodeRow({ keyLabel, value, path, parentType }) {
   }
 
   const body = document.createElement("div");
-  body.className = "space-y-3";
+  body.className = "space-y-1";
 
   const header = document.createElement("div");
-  header.className = "flex flex-wrap items-center gap-3";
+  header.className = "flex flex-wrap items-center gap-1.5";
   header.innerHTML = `
     <div class="tree-key">
       <span>${escapeHtml(renderKeyLabel(keyLabel, parentType))}</span>
@@ -1050,7 +1163,7 @@ function renderNodeRow({ keyLabel, value, path, parentType }) {
 
   if (isComplex && expanded) {
     const children = document.createElement("div");
-    children.className = "space-y-3";
+    children.className = "space-y-1";
 
     if (type === "object") {
       const entries = Object.entries(value);
@@ -1144,9 +1257,15 @@ function makeActionButton(label, role, pathKey) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "icon-btn";
-  button.textContent = label;
+  button.title = label;
   button.dataset.role = role;
   button.dataset.path = pathKey;
+  const ICONS = {
+    "delete-node":    `<svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>`,
+    "add-object-key": `<svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/></svg><span style="font-size:0.65rem;font-weight:700;letter-spacing:0.02em">K</span>`,
+    "add-array-item": `<svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/></svg><span style="font-size:0.65rem;font-weight:700;letter-spacing:0.02em">[ ]</span>`,
+  };
+  button.innerHTML = ICONS[role] ?? label;
   return button;
 }
 
@@ -1184,7 +1303,7 @@ function renderPrimitiveEditor(path, value) {
         <option value="null" ${type === "null" ? "selected" : ""}>null</option>
       </select>
       <div data-role="primitive-input">${valueMarkup}</div>
-      <button class="btn-secondary" type="submit">Apply</button>
+      <button class="icon-btn" type="submit" title="Apply changes">✓</button>
     </div>
   `;
 
@@ -1232,18 +1351,7 @@ function renderTableView() {
       "success"
     );
 
-    const filterBar = document.createElement("div");
-    filterBar.className = "col-filter-bar";
-    filterBar.innerHTML = `<span class="col-filter-label">Columns:</span>`;
-    filterBar.appendChild(makeColumnPill("All / None", "col-show-all", "col-pill col-pill-all"));
-
-    allKeys.forEach((key) => {
-      filterBar.appendChild(makeColumnPill(key, "toggle-col", `col-pill${hidden.has(key) ? " col-pill-off" : ""}`, {
-        column: key
-      }));
-    });
-
-    filterBar.appendChild(makeColumnPill("Export", "col-export", "col-pill col-pill-export"));
+    const filterBar = makeFilterBar(allKeys, hidden);
 
     const tableShell = document.createElement("div");
     tableShell.className = "table-shell";
@@ -1259,13 +1367,14 @@ function renderTableView() {
       const row = document.createElement("tr");
 
       const keyCell = document.createElement("td");
-      keyCell.innerHTML = `<span class="cell-key">${escapeHtml(key)}</span>`;
+      const keyHl = state.searchQuery ? highlightText(key, state.searchQuery) : escapeHtml(key);
+      keyCell.innerHTML = `<span class="cell-key">${keyHl}</span>`;
 
       const valueCell = document.createElement("td");
       if (state.searchQuery && tableSearchMatches(key, value)) {
         valueCell.classList.add("td-match");
       }
-      valueCell.appendChild(renderTableCell(value, [...state.tablePath, key]));
+      valueCell.appendChild(renderTableCell(value, [...state.tablePath, key], state.searchQuery));
 
       row.append(keyCell, valueCell);
       tbody.appendChild(row);
@@ -1285,18 +1394,7 @@ function renderTableView() {
     return;
   }
 
-  const filterBar = document.createElement("div");
-  filterBar.className = "col-filter-bar";
-  filterBar.innerHTML = `<span class="col-filter-label">Columns:</span>`;
-  filterBar.appendChild(makeColumnPill("All / None", "col-show-all", "col-pill col-pill-all"));
-
-  suitability.columns.forEach((column) => {
-    filterBar.appendChild(
-      makeColumnPill(column, "toggle-col", `col-pill${hidden.has(column) ? " col-pill-off" : ""}`, { column })
-    );
-  });
-
-  filterBar.appendChild(makeColumnPill("Export", "col-export", "col-pill col-pill-export"));
+  const filterBar = makeFilterBar(suitability.columns, hidden);
 
   const visibleColumns = suitability.columns.filter((column) => !hidden.has(column));
   const displayRows = state.searchQuery
@@ -1376,7 +1474,7 @@ function renderTableView() {
         if (state.searchQuery && tableSearchMatches(column, cellValue)) {
           td.classList.add("td-match");
         }
-        td.appendChild(renderTableCell(cellValue, [...state.tablePath, origIndex, column]));
+        td.appendChild(renderTableCell(cellValue, [...state.tablePath, origIndex, column], state.searchQuery));
         row.appendChild(td);
       });
 
@@ -1400,9 +1498,9 @@ function renderTableView() {
     </div>
     <span class="pagebar-info">${totalRows} rows${pageSize === 0 ? "" : ` • ${pageStart + 1}-${pageEnd || 0}`}</span>
     <div class="pagebar-nav">
-      <button class="pagebar-nav-btn${state.tablePage <= 0 ? " is-disabled" : ""}" data-role="page-prev">Prev</button>
+      <button class="pagebar-nav-btn${state.tablePage <= 0 ? " is-disabled" : ""}" data-role="page-prev" title="Previous page">←</button>
       <span class="pagebar-page">${totalRows ? state.tablePage + 1 : 0} / ${totalPages}</span>
-      <button class="pagebar-nav-btn${state.tablePage >= totalPages - 1 ? " is-disabled" : ""}" data-role="page-next">Next</button>
+      <button class="pagebar-nav-btn${state.tablePage >= totalPages - 1 ? " is-disabled" : ""}" data-role="page-next" title="Next page">→</button>
     </div>
   `;
 
@@ -1410,6 +1508,92 @@ function renderTableView() {
   els.tableView.appendChild(filterBar);
   els.tableView.appendChild(tableShell);
   els.tableView.appendChild(pagebar);
+}
+
+function makeFilterBar(allColumns, hidden) {
+  const filterWasOpen = els.tableView.querySelector(".col-filter-dropdown-wrap")?.open ?? false;
+
+  const bar = document.createElement("div");
+  bar.className = "col-filter-bar";
+
+  const details = document.createElement("details");
+  details.className = "col-filter-dropdown-wrap";
+  if (filterWasOpen) details.open = true;
+
+  const hiddenCount = allColumns.filter((c) => hidden.has(c)).length;
+
+  const summary = document.createElement("summary");
+  summary.className = "btn-tool col-filter-summary";
+  summary.innerHTML =
+    `<svg class="btn-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M3 3a1 1 0 011-1h12a1 1 0 011 1v3a1 1 0 01-.293.707L13 10.414V15a1 1 0 01-.553.894l-4 2A1 1 0 017 17v-6.586L3.293 6.707A1 1 0 013 6V3z" clip-rule="evenodd"/></svg>` +
+    `Columns${hiddenCount > 0 ? ` <span class="col-filter-badge">${hiddenCount} hidden</span>` : ""}`;
+
+  const panel = document.createElement("div");
+  panel.className = "col-filter-panel";
+
+  // Search input
+  const searchInput = document.createElement("input");
+  searchInput.type = "text";
+  searchInput.className = "col-filter-search";
+  searchInput.placeholder = "Search columns…";
+  panel.appendChild(searchInput);
+
+  // All / None button
+  const allVisible = allColumns.every((c) => !hidden.has(c));
+  const allNoneBtn = document.createElement("button");
+  allNoneBtn.type = "button";
+  allNoneBtn.className = "col-filter-all-btn";
+  allNoneBtn.dataset.role = "col-show-all";
+  allNoneBtn.innerHTML = `<span class="col-filter-check col-filter-check-ctrl">${allVisible ? `<svg width="9" height="9" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5 9 1" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>` : ""}</span>All / None`;
+  panel.appendChild(allNoneBtn);
+
+  // Divider
+  const divider = document.createElement("div");
+  divider.className = "col-filter-divider";
+  panel.appendChild(divider);
+
+  // Column list
+  const CHECKSVG = `<svg width="9" height="9" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5 9 1" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const list = document.createElement("div");
+  list.className = "col-filter-list";
+
+  allColumns.forEach((col) => {
+    const isHidden = hidden.has(col);
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = `col-filter-item${isHidden ? " is-hidden" : ""}`;
+    item.dataset.role = "toggle-col";
+    item.dataset.column = col;
+    item.dataset.searchLabel = col.toLowerCase();
+    item.innerHTML = `<span class="col-filter-check">${isHidden ? "" : CHECKSVG}</span><span class="col-filter-item-label">${escapeHtml(col)}</span>`;
+    list.appendChild(item);
+  });
+  panel.appendChild(list);
+
+  // Live search filter (DOM only, no re-render)
+  searchInput.addEventListener("input", (e) => {
+    const q = e.target.value.toLowerCase();
+    list.querySelectorAll(".col-filter-item").forEach((item) => {
+      item.style.display = item.dataset.searchLabel.includes(q) ? "" : "none";
+    });
+  });
+
+  // Auto-focus search when dropdown opens
+  details.addEventListener("toggle", () => {
+    if (details.open) setTimeout(() => searchInput.focus(), 30);
+  });
+
+  details.append(summary, panel);
+
+  const exportBtn = document.createElement("button");
+  exportBtn.type = "button";
+  exportBtn.className = "btn-tool btn-tool-primary";
+  exportBtn.dataset.role = "col-export";
+  exportBtn.style.marginLeft = "auto";
+  exportBtn.innerHTML = `<svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export`;
+
+  bar.append(details, exportBtn);
+  return bar;
 }
 
 function makeColumnPill(label, role, className, extra = {}) {
@@ -1439,7 +1623,7 @@ function tableSearchMatches(key, value) {
   return String(formatPrimitive(value, type)).toLowerCase().includes(state.searchQuery);
 }
 
-function renderTableCell(value, path) {
+function renderTableCell(value, path, query = "") {
   const type = getValueType(value);
   const wrapper = document.createElement("div");
 
@@ -1449,7 +1633,8 @@ function renderTableCell(value, path) {
   }
 
   if (type === "boolean") {
-    wrapper.innerHTML = `<span class="cell-bool ${value ? "cell-bool-true" : "cell-bool-false"}">${value}</span>`;
+    const t = String(value);
+    wrapper.innerHTML = `<span class="cell-bool ${value ? "cell-bool-true" : "cell-bool-false"}">${query ? highlightText(t, query) : t}</span>`;
     markEditable(wrapper, path, type);
     return wrapper;
   }
@@ -1499,12 +1684,14 @@ function renderTableCell(value, path) {
   }
 
   if (type === "number") {
-    wrapper.innerHTML = `<span class="cell-number">${escapeHtml(formatPrimitive(value, type))}</span>`;
+    const t = formatPrimitive(value, type);
+    wrapper.innerHTML = `<span class="cell-number">${query ? highlightText(t, query) : escapeHtml(t)}</span>`;
     markEditable(wrapper, path, type);
     return wrapper;
   }
 
-  wrapper.innerHTML = `<span class="cell-primitive">${escapeHtml(formatPrimitive(value, type))}</span>`;
+  const t = formatPrimitive(value, type);
+  wrapper.innerHTML = `<span class="cell-primitive">${query ? highlightText(t, query) : escapeHtml(t)}</span>`;
   markEditable(wrapper, path, type);
   return wrapper;
 }
@@ -1762,6 +1949,17 @@ function handleDocumentClick(event) {
         showToast(`Deleted column "${column}".`, "success");
       }
     );
+    return;
+  }
+
+  if (role === "pv-toggle") {
+    const pathKey = actionButton.dataset.path;
+    if (state.prettyCollapsed.has(pathKey)) {
+      state.prettyCollapsed.delete(pathKey);
+    } else {
+      state.prettyCollapsed.add(pathKey);
+    }
+    renderPrettyView();
     return;
   }
 
@@ -2234,4 +2432,20 @@ function escapeHtml(value) {
 
 function escapeAttribute(value) {
   return escapeHtml(value).replaceAll("`", "&#96;");
+}
+
+function highlightText(text, query) {
+  const str = String(text);
+  const lower = str.toLowerCase();
+  const q = query.toLowerCase();
+  let result = "";
+  let i = 0;
+  while (i < str.length) {
+    const idx = lower.indexOf(q, i);
+    if (idx === -1) { result += escapeHtml(str.slice(i)); break; }
+    result += escapeHtml(str.slice(i, idx));
+    result += `<mark class="search-hl">${escapeHtml(str.slice(idx, idx + q.length))}</mark>`;
+    i = idx + q.length;
+  }
+  return result;
 }

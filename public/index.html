@@ -185,6 +185,7 @@
               <div class="flex items-center justify-between">
                 <h2 class="text-sm font-bold text-slate-900 dark:text-white">Structured View</h2>
                 <div class="inline-flex rounded border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-800">
+                  <button data-mode="pretty" class="mode-tab">Pretty</button>
                   <button data-mode="tree" class="mode-tab is-active">Tree</button>
                   <button data-mode="table" class="mode-tab">Table</button>
                 </div>
@@ -200,6 +201,7 @@
 
               <div id="structuredStatus" class="mb-2 hidden rounded border px-3 py-2 text-xs font-medium shrink-0"></div>
 
+              <div id="prettyView" class="workspace-scroll hidden overflow-auto pr-1"></div>
               <div id="treeView" class="workspace-scroll overflow-auto pr-1"></div>
               <div id="tableView" class="workspace-scroll hidden"></div>
             </div>
@@ -270,9 +272,15 @@
               <p id="exportModalDesc" class="export-modal-desc"></p>
             </div>
             <div class="export-modal-actions">
-              <button id="exportModalCopy" class="btn-primary">Copy JSON</button>
-              <button id="exportModalDownload" class="btn-secondary">Save File</button>
-              <button id="exportModalClose" class="btn-ghost">✕</button>
+              <button id="exportModalCopy" class="btn-tool btn-tool-primary">
+                <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                Copy JSON
+              </button>
+              <button id="exportModalDownload" class="btn-tool">
+                <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Save File
+              </button>
+              <button id="exportModalClose" class="btn-tool" title="Close">✕</button>
             </div>
           </div>
           <textarea id="exportModalOutput" readonly spellcheck="false" class="export-modal-output"></textarea>
