@@ -12,6 +12,14 @@ A browser-based JSON viewer and editor built with plain HTML, CSS, and JavaScrip
 - **Prettify** button formats and re-indents the JSON; it pulses with a hint animation when the raw text is dirty and valid
 - Word-wrap toggle (preserves preference across sessions)
 
+### Pretty View
+
+- Syntax-highlighted, read-only view of the full JSON document
+- Color-coded tokens: keys (blue), strings (green), numbers (cyan), booleans (amber), null (grey), braces (slate)
+- Automatic line numbers via CSS counters
+- **Collapse / expand** any object or array with a toggle button (▼ / ▶); collapsed nodes show a count summary (e.g. `3 keys`)
+- **Search integration**: matching rows are highlighted with an amber background; collapsed nodes containing matches are automatically expanded; matched text is highlighted inline with a darker mark
+
 ### Tree View
 
 - Recursive, collapsible tree of all JSON nodes
@@ -26,11 +34,12 @@ A browser-based JSON viewer and editor built with plain HTML, CSS, and JavaScrip
 
 - Renders any array-of-objects or plain object as a styled, scrollable table
 - **Breadcrumb navigation**: click any cell that contains an object or array to drill down; use the breadcrumb bar to navigate back
-- **Column filter bar**: pill toggles to show/hide individual columns per breadcrumb level; "All / None" toggle
+- **Column filter dropdown**: searchable checkbox list to show/hide individual columns per breadcrumb level; All / None toggle; hidden-column count badge
 - **Inline cell editing**: click any primitive cell (string, number, boolean) to edit it in place — commits on Enter / blur, cancels on Escape
 - **Delete column** button (×) in each table header cell — removes the column from all rows with confirmation
-- **Export filtered view**: opens a full-screen modal with the current visible rows/columns serialised as JSON; supports Copy and Save File
+- **Export filtered view**: opens a modal with the current visible rows/columns serialized as JSON; supports Copy and Save File
 - **Pagination**: page sizes 20 / 50 / 100 / All; Prev / Next navigation; resets on search or navigation
+- **Search integration**: matching cells are highlighted; matched text is highlighted inline with a darker mark
 
 ### Extract Modal
 
@@ -48,9 +57,10 @@ A browser-based JSON viewer and editor built with plain HTML, CSS, and JavaScrip
 
 ### Search
 
-- Search box in the raw-panel header filters both views in real time (debounced: 150 ms normal, 400 ms for large files)
-- Tree view switches to a flat search-results list showing path, key, and value; capped at 500 results
-- Table view highlights matching cells; search count shown next to the input
+- Search box in the raw-panel header filters all structured views in real time (debounced: 150 ms normal, 400 ms for large files)
+- **Pretty view**: highlights matching rows (light amber background) and matched text (dark amber mark); auto-expands collapsed nodes containing matches; match count shown next to the input
+- **Tree view**: switches to a flat search-results list showing path, key, and value; capped at 500 results
+- **Table view**: filters to matching rows/keys and highlights matched text inline; match count shown next to the input
 - Clearing the query restores the normal view
 
 ### File Operations
@@ -66,8 +76,10 @@ A browser-based JSON viewer and editor built with plain HTML, CSS, and JavaScrip
 
 ### UI / UX
 
+- **Three structured views**: Pretty (read-only, syntax-highlighted), Tree (editable), Table (editable)
 - **Dark mode toggle** — remembers preference in `localStorage`; defaults to the OS preference
 - **Draggable panel resizer** between the Raw and Structured panels; remembers width in `localStorage`
+- Compact button system (`btn-tool`) used consistently across toolbar, filter bar, and modals
 - Toast notifications (success / error / info) auto-dismiss after 3.2 s
 - Confirmation modal for all destructive operations
 - JSON stats bar: total keys, nodes, and nesting depth
